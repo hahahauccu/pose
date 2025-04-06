@@ -2,54 +2,48 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Pose Detection Recorder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pose Recorder</title>
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      overflow: hidden;
       background: black;
+      overflow: hidden;
       color: white;
       font-family: sans-serif;
       text-align: center;
     }
-    canvas {
+    video, canvas {
       position: absolute;
       top: 0; left: 0;
       width: 100vw;
       height: 100vh;
     }
     button {
-      z-index: 10;
-      position: absolute;
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
       padding: 1em 2em;
       font-size: 1.2em;
       background: #4CAF50;
       color: white;
       border: none;
       border-radius: 12px;
+      z-index: 10;
     }
-    #startBtn {
-      top: 40%; left: 50%; transform: translate(-50%, -50%);
-    }
-    #recordBtn {
-      top: 60%; left: 50%; transform: translate(-50%, -50%);
-      display: none;
-    }
-    #saveBtn {
-      top: 80%; left: 50%; transform: translate(-50%, -50%);
-      display: none;
-    }
+    #startBtn { top: 20%; }
+    #recordBtn { top: 35%; display: none; }
+    #countdown { font-size: 2em; margin-top: 1em; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.5/dist/pose-detection.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 </head>
 <body>
   <button id="startBtn">開始偵測</button>
-  <button id="recordBtn">錄製標準動作</button>
-  <button id="saveBtn">下載標準動作</button>
-  <video id="video" autoplay playsinline style="display: none;"></video>
+  <button id="recordBtn">錄製動作</button>
+  <div id="countdown"></div>
+  <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
 
   <script>
@@ -58,16 +52,17 @@
     const ctx = canvas.getContext("2d");
     const startBtn = document.getElementById("startBtn");
     const recordBtn = document.getElementById("recordBtn");
-    const saveBtn = document.getElementById("saveBtn");
+    const countdownEl = document.getElementById("countdown");
 
     let detector;
     let lastTime = 0;
     const minInterval = 100;
-    let standardPoses = [];
+    let currentPose = null;
+    let poseIndex = 1;
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: "user", width: 640, height: 480 },
         audio: false
       });
       video.srcObject = stream;
@@ -76,36 +71,20 @@
       });
     }
 
-    async function main() {
-      await tf.setBackend('webgl');
-      await tf.ready();
-      await setupCamera();
-      await video.play();
-
-      detector = await poseDetection.createDetector(
-        poseDetection.SupportedModels.MoveNet,
-        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-      );
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      requestAnimationFrame(detect);
-    }
-
-    async function detect(now) {
-      requestAnimationFrame(detect);
-      if (!detector || now - lastTime < minInterval) return;
+    async function detectPose(now) {
+      requestAnimationFrame(detectPose);
+      if (now - lastTime < minInterval) return;
       lastTime = now;
 
+      if (!detector) return;
       const poses = await detector.estimatePoses(video);
+      if (poses.length > 0) currentPose = poses[0];
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      if (poses.length > 0) {
-        const keypoints = poses[0].keypoints;
-        keypoints.forEach((kp) => {
+      if (currentPose) {
+        currentPose.keypoints.forEach(kp => {
           if (kp.score > 0.4) {
             ctx.beginPath();
             ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
@@ -116,25 +95,47 @@
       }
     }
 
-    function recordStandardPose() {
-      let countdown = 15;
-      const intervalId = setInterval(async () => {
-        console.log(`倒數：${countdown}`);
-        countdown--;
+    function downloadPose(pose, index) {
+      const blob = new Blob([JSON.stringify(pose, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pose${index}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
 
-        if (countdown < 0) {
-          clearInterval(intervalId);
-          const poses = await detector.estimatePoses(video);
-          if (poses.length > 0) {
-            const keypoints = poses[0].keypoints.map(kp => ({ x: kp.x, y: kp.y, score: kp.score, name: kp.name }));
-            const copied = JSON.parse(JSON.stringify(keypoints));
-            standardPoses.push(copied);
-            alert(`錄製完成 (${standardPoses.length}/8)`);
+    async function main() {
+      await tf.setBackend("webgl");
+      await tf.ready();
+      await setupCamera();
+      await video.play();
 
-            if (standardPoses.length >= 8) {
-              saveBtn.style.display = "block";
-            }
-          }
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      detector = await poseDetection.createDetector(
+        poseDetection.SupportedModels.MoveNet,
+        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+      );
+
+      requestAnimationFrame(detectPose);
+    }
+
+    async function startRecordingPose() {
+      recordBtn.disabled = true;
+      let timeLeft = 15;
+      countdownEl.textContent = `倒數 ${timeLeft} 秒`;
+
+      const countdownInterval = setInterval(() => {
+        timeLeft--;
+        countdownEl.textContent = `倒數 ${timeLeft} 秒`;
+        if (timeLeft <= 0) {
+          clearInterval(countdownInterval);
+          countdownEl.textContent = `✅ 已錄製第 ${poseIndex} 個動作`;
+          if (currentPose) downloadPose(currentPose, poseIndex);
+          poseIndex++;
+          recordBtn.disabled = false;
         }
       }, 1000);
     }
@@ -145,19 +146,7 @@
       await main();
     });
 
-    recordBtn.addEventListener("click", () => {
-      recordStandardPose();
-    });
-
-    saveBtn.addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(standardPoses, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "standard_poses.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    });
+    recordBtn.addEventListener("click", startRecordingPose);
   </script>
 </body>
 </html>
