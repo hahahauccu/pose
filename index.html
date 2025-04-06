@@ -103,7 +103,7 @@
       if (!detector) return;
       const result = await detector.estimatePoses(video);
       if (result.length > 0) poses = result;
-      setTimeout(detectLoop, 100); // 控制每秒約10次
+      setTimeout(detectLoop, 100);
     }
 
     function recordStandardPose() {
@@ -117,28 +117,36 @@
 
     function startRecordingCountdown(seconds = 15) {
       let count = seconds;
+      startBtn.textContent = `錄製中...(${count})`;
+      startBtn.disabled = true;
+
       const interval = setInterval(() => {
-        console.log("⏳ 倒數中... " + count);
         count--;
-        if (count < 0) {
+        startBtn.textContent = `錄製中...(${count})`;
+        if (count <= 0) {
           clearInterval(interval);
           recordStandardPose();
+          startBtn.textContent = "錄下一個標準動作";
+          startBtn.disabled = false;
         }
       }, 1000);
     }
 
     startBtn.addEventListener("click", async () => {
-      startBtn.style.display = "none";
-      await setupCamera();
-      await initDetector();
+      if (!detector) {
+        await setupCamera();
+        await initDetector();
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
 
-      detectLoop();      // 每秒10次偵測姿勢
-      drawFrame();       // 每幀畫畫面，不卡住
+        detectLoop();
+        drawFrame();
 
-      startRecordingCountdown(15); // 倒數 15 秒錄標準姿勢
+        startBtn.textContent = "錄下一個標準動作";
+      } else {
+        startRecordingCountdown(15);
+      }
     });
   </script>
 </body>
