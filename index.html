@@ -32,7 +32,7 @@
 </head>
 <body>
   <button id="startBtn">開始偵測</button>
-  <video id="video" autoplay playsinline style="display: none;"></video>
+  <video id="video" autoplay playsinline muted style="display:none;"></video>
   <canvas id="canvas"></canvas>
 
   <script>
@@ -44,7 +44,6 @@
     let detector;
     let poses = [];
     let standardPoses = [];
-    let recording = false;
     let poseIndex = 0;
 
     async function setupCamera() {
@@ -54,22 +53,26 @@
       });
       video.srcObject = stream;
       return new Promise(resolve => {
-        video.onloadedmetadata = () => resolve(video);
+        video.onloadedmetadata = () => {
+          video.play();
+          resolve();
+        };
       });
     }
 
-    async function detectLoop() {
-      if (!detector) return;
-      const result = await detector.estimatePoses(video);
-      if (result.length > 0) poses = result;
-
-      draw();
-      requestAnimationFrame(detectLoop);
+    async function initDetector() {
+      await tf.setBackend('webgl');
+      await tf.ready();
+      detector = await poseDetection.createDetector(
+        poseDetection.SupportedModels.MoveNet,
+        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+      );
     }
 
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    function drawFrame() {
+      if (video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
 
       if (poses.length > 0) {
         const keypoints = poses[0].keypoints;
@@ -82,7 +85,7 @@
           }
         });
 
-        // 畫出標準動作（半透明藍色）
+        // 畫標準動作（藍色）
         if (standardPoses[poseIndex]) {
           standardPoses[poseIndex].forEach(kp => {
             ctx.beginPath();
@@ -92,24 +95,15 @@
           });
         }
       }
+
+      requestAnimationFrame(drawFrame);
     }
 
-    async function main() {
-      await tf.setBackend('webgl');
-      await tf.ready();
-
-      await setupCamera();
-      await video.play();
-
-      detector = await poseDetection.createDetector(
-        poseDetection.SupportedModels.MoveNet,
-        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-      );
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      detectLoop();
+    async function detectLoop() {
+      if (!detector) return;
+      const result = await detector.estimatePoses(video);
+      if (result.length > 0) poses = result;
+      setTimeout(detectLoop, 100); // 控制每秒約10次
     }
 
     function recordStandardPose() {
@@ -135,10 +129,16 @@
 
     startBtn.addEventListener("click", async () => {
       startBtn.style.display = "none";
-      await main();
+      await setupCamera();
+      await initDetector();
 
-      // 開始倒數 15 秒，錄下第一個姿勢
-      startRecordingCountdown(15);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      detectLoop();      // 每秒10次偵測姿勢
+      drawFrame();       // 每幀畫畫面，不卡住
+
+      startRecordingCountdown(15); // 倒數 15 秒錄標準姿勢
     });
   </script>
 </body>
