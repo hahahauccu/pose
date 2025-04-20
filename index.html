@@ -19,6 +19,7 @@
       top: 0; left: 0;
       width: 100vw;
       height: 100vh;
+      object-fit: cover; /* ✅ 確保畫面比例一致 */
     }
     button {
       position: fixed;
@@ -34,8 +35,15 @@
     }
     #startBtn { top: 20%; }
     #recordBtn { top: 35%; display: none; }
-    #countdown { font-size: 2em; margin-top: 1em; position: relative; z-index: 5; }
+    #countdown {
+      font-size: 2em;
+      margin-top: 1em;
+      position: relative;
+      z-index: 5;
+    }
   </style>
+
+  <!-- TensorFlow.js 與 Pose Detection -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 </head>
@@ -114,7 +122,7 @@
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // ✅ 鏡像處理
+      // ✅ 鏡像翻轉（左右鏡像）
       ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
 
       detector = await poseDetection.createDetector(
